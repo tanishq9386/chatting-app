@@ -11,7 +11,7 @@ interface UserListProps {
 export const UserList = ({ users, currentUser }: UserListProps) => {
   return (
     <div className="w-64 bg-gray-100 border-l">
-      <div className="p-4 border-b bg-blue-300">
+      <div className="p-4 py-4.5 border-b bg-gray-600">
         <div className="flex items-center gap-2">
           <Users size={20} />
           <h3 className="font-semibold">Online Users ({users.length})</h3>
@@ -22,7 +22,7 @@ export const UserList = ({ users, currentUser }: UserListProps) => {
         {users.map((user) => (
           <div
             key={user.id}
-            className={`p-2 rounded mb-2 ${
+            className={`p-2 rounded mb-2 text-gray-600 ${
               user.username === currentUser
                 ? 'bg-blue-100 border border-blue-300'
                 : 'bg-white'

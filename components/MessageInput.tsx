@@ -20,18 +20,18 @@ export const MessageInput = ({ onSendMessage, disabled }: MessageInputProps) => 
   };
 
   return (
-    <form onSubmit={handleSubmit} className="p-4 border-t flex gap-2">
+    <form onSubmit={handleSubmit} className="p-4 border-t flex gap-2 bg-zinc-700">
       <input
         type="text"
         value={message}
         onChange={(e) => setMessage(e.target.value)}
         placeholder="Type your message..."
-        className="flex-1 p-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+        className="flex-1 p-2 bg-gray-200 text-black border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
         disabled={disabled}
       />
       <button
         type="submit"
-        className="bg-blue-500 text-white p-2 rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        className="bg-gray-900 text-white p-2 rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         disabled={disabled || !message.trim()}
       >
         <Send size={20} />
