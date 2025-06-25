@@ -1,10 +1,12 @@
-/** @type {import('next').NextConfig} */
-const nextConfig = {
+import type { NextConfig } from 'next';
+import type { WebpackConfigContext } from 'next/dist/server/config-shared';
+
+const nextConfig: NextConfig = {
   experimental: {
     serverActions: {},
   },
   // Ensure compatibility with Socket.io
-  webpack: (config, { isServer }) => {
+  webpack: (config: any, { isServer }: WebpackConfigContext) => {
     if (!isServer) {
       config.resolve.fallback = {
         ...config.resolve.fallback,
@@ -17,4 +19,4 @@ const nextConfig = {
   },
 };
 
-module.exports = nextConfig;
+export default nextConfig;
