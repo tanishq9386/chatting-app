@@ -16,8 +16,21 @@
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+    --lightgrey: #b2b2b2;
   }
 }
+
+@keyframes flowGradient {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.flowing-gradient {
+  background: linear-gradient(90deg, #3b82f6, #7857c5, #3b82f6);
+  background-size: 200% 100%;
+  animation: flowGradient 16s linear infinite;
+}
+
 
 body {
   background: var(--background);
