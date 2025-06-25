@@ -18,6 +18,7 @@ export const ChatRoom = ({ username, room }: ChatRoomProps) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    console.log('Socket:', socket);
     if (!socket) return;
 
     socket.emit('joinRoom', { username, room });
@@ -49,8 +50,10 @@ export const ChatRoom = ({ username, room }: ChatRoomProps) => {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+  
 
   const sendMessage = (text: string) => {
+    console.log('Attempting to send message:', text);
     if (socket && text.trim()) {
       socket.emit('sendMessage', { text, username, room });
     }

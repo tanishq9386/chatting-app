@@ -51,6 +51,7 @@ export const initSocket = (server: NetServer) => {
     });
 
     socket.on('sendMessage', ({ text, username, room }) => {
+        console.log('Received message:', text, username, room);
       const message: Message = {
         id: uuidv4(),
         text,
