@@ -73,7 +73,7 @@ export const ChatRoom = ({ username, room }: ChatRoomProps) => {
               className={`p-3 rounded-lg max-w-xs ${
                 message.username === username
                   ? 'bg-blue-500 text-white ml-auto'
-                  : 'bg-gray-200 text-gray-800'
+                  : 'bg-gray-300 text-gray-800'
               }`}
             >
               <div className="font-semibold text-sm">{message.username}</div>
