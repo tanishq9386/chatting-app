@@ -51,6 +51,7 @@ export const initSocket = (server: NetServer) => {
     });
 
     socket.on('sendMessage', ({ text, username, room }) => {
+        try {
         console.log('Received message:', text, username, room);
       const message: Message = {
         id: uuidv4(),
@@ -68,6 +69,9 @@ export const initSocket = (server: NetServer) => {
 
       // Send message to all users in the room
       io.to(room).emit('message', message);
+      } catch (err) {
+        console.error('Error handling sendMessage:', err);
+      }
     });
 
     socket.on('disconnect', () => {

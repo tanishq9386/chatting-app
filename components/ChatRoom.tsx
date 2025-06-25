@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSocket } from '@/hooks/useSocket';
 import { Message, User } from '@/lib/types';
 import { MessageInput } from './MessageInput';
@@ -12,52 +12,65 @@ interface ChatRoomProps {
 }
 
 export const ChatRoom = ({ username, room }: ChatRoomProps) => {
-  const socket = useSocket();
+  // Use the improved useSocket hook (see below for how to update)
+  const { socket, isConnected } = useSocket();
   const [messages, setMessages] = useState<Message[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    console.log('Socket:', socket);
-    if (!socket) return;
-
-    socket.emit('joinRoom', { username, room });
-
-    socket.on('message', (message: Message) => {
-      setMessages(prev => [...prev, message]);
-    });
-
-    socket.on('userJoined', (user: User) => {
-      console.log(`${user.username} joined the room`);
-    });
-
-    socket.on('userLeft', (user: User) => {
-      console.log(`${user.username} left the room`);
-    });
-
-    socket.on('roomUsers', (roomUsers: User[]) => {
-      setUsers(roomUsers);
-    });
-
-    return () => {
-      socket.off('message');
-      socket.off('userJoined');
-      socket.off('userLeft');
-      socket.off('roomUsers');
-    };
-  }, [socket, username, room]);
-
+  // Scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
-  
 
-  const sendMessage = (text: string) => {
+  // Setup and cleanup socket event listeners
+  useEffect(() => {
+    if (!socket) return;
+
+    // Define event handlers
+    const onMessage = (message: Message) => {
+      setMessages(prev => [...prev, message]);
+    };
+    const onRoomMessages = (messages: Message[]) => {
+      setMessages(messages);
+    };
+    const onUserJoined = (user: User) => {
+      console.log(`${user.username} joined the room`);
+    };
+    const onUserLeft = (user: User) => {
+      console.log(`${user.username} left the room`);
+    };
+    const onRoomUsers = (roomUsers: User[]) => {
+      setUsers(roomUsers);
+    };
+
+    // Join the room
+    socket.emit('joinRoom', { username, room });
+
+    // Add listeners
+    socket.on('message', onMessage);
+    socket.on('roomMessages', onRoomMessages);
+    socket.on('userJoined', onUserJoined);
+    socket.on('userLeft', onUserLeft);
+    socket.on('roomUsers', onRoomUsers);
+
+    // Cleanup on unmount
+    return () => {
+      socket.off('message', onMessage);
+      socket.off('roomMessages', onRoomMessages);
+      socket.off('userJoined', onUserJoined);
+      socket.off('userLeft', onUserLeft);
+      socket.off('roomUsers', onRoomUsers);
+    };
+  }, [socket, username, room]);
+
+  // Send message function
+  const sendMessage = useCallback((text: string) => {
     console.log('Attempting to send message:', text);
-    if (socket && text.trim()) {
+    if (socket && text.trim() && isConnected) {
       socket.emit('sendMessage', { text, username, room });
     }
-  };
+  }, [socket, username, room, isConnected]);
 
   return (
     <div className="flex h-screen">
@@ -86,7 +99,7 @@ export const ChatRoom = ({ username, room }: ChatRoomProps) => {
           <div ref={messagesEndRef} />
         </div>
         
-        <MessageInput onSendMessage={sendMessage} />
+        <MessageInput onSendMessage={sendMessage} disabled={!isConnected} />
       </div>
       
       <UserList users={users} currentUser={username} />
