@@ -3,10 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "ts-node server.ts",
     "build": "tsc && next build",
-    "start": "NODE_ENV=production node build/server.js",
-    "lint": "next lint"
+    "start": "NODE_ENV=production node build/server.js"
   },
   "dependencies": {
     "@types/uuid": "^10.0.0",
