@@ -3,7 +3,9 @@
   "compilerOptions": {
     "outDir": "./build",
     "rootDir": ".",
-    "module": "CommonJS"
+    "module": "CommonJS",
+    "noEmit": false
   },
   "include": ["server.ts", "server/**/*.ts"]
 }
+
