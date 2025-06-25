@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "ts-node server.ts",
     "build": "next build",
-    "start": "next start",
+    "start": "NODE_ENV=production ts-node server.ts",
     "lint": "next lint"
   },
   "dependencies": {
@@ -28,6 +28,7 @@
     "eslint": "^9",
     "eslint-config-next": "15.3.4",
     "tailwindcss": "^4",
+    "ts-node": "^10.9.2",
     "typescript": "^5"
   }
 }

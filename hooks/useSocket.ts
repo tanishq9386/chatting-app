@@ -27,6 +27,11 @@ export const useSocket = () => {
       console.log('Disconnected from server');
     });
 
+    socketInstance.on("connect_error", (err) => {
+        console.error("Socket connect_error:", err.message, err);
+    });
+
+
     // Cleanup on unmount
     return () => {
       socketInstance.disconnect();

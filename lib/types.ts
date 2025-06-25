@@ -17,6 +17,7 @@ export interface ServerToClientEvents {
   userJoined: (user: User) => void;
   userLeft: (user: User) => void;
   roomUsers: (users: User[]) => void;
+  roomMessages: (messages: Message[]) => void;
 }
 
 export interface ClientToServerEvents {
