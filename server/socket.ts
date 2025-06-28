@@ -20,8 +20,11 @@ export const initSocket = (server: NetServer) => {
     path: '/api/socket',
     addTrailingSlash: false,
     cors: {
-      origin: process.env.NODE_ENV === 'production' ? false : 'http://localhost:3000',
+      origin: process.env.NODE_ENV === 'production' 
+        ? ['https://chatting-app-mj2n.onrender.com', '*']
+        : ['http://localhost:3000', '*'],
       methods: ['GET', 'POST'],
+      credentials: true,
     },
   });
 
