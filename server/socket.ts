@@ -21,39 +21,43 @@ export const initSocket = (server: NetServer) => {
     addTrailingSlash: false,
     cors: {
       origin: (origin, callback) => {
-        // Allow requests with no origin (mobile apps, Postman, etc.)
+        console.log('Incoming origin:', origin);
+        
+        // Allow requests with no origin (mobile apps)
         if (!origin) {
-          console.log('Request with no origin (likely mobile app)');
+          console.log('No origin - allowing (mobile app)');
           return callback(null, true);
         }
 
-        // Define allowed origins based on environment
-        const allowedOrigins = process.env.NODE_ENV === 'production' 
-          ? [
-              'https://chatting-app-mj2n.onrender.com',
-              'http://chatting-app-mj2n.onrender.com',
-            ]
-          : [
-              'http://localhost:3000',
-              'http://127.0.0.1:3000',
-              'http://localhost:8081', // Expo dev server
-              'http://localhost:19000', // Expo dev server alternative
-              'http://localhost:19006', // Expo web
-            ];
+        // Define allowed origins
+        const allowedOrigins = [
+          'https://chatting-app-mj2n.onrender.com',
+          'https://chatting-app-mj2n.onrender.com:443', // Add this line
+          'http://chatting-app-mj2n.onrender.com',
+          'http://localhost:3000',
+          'http://127.0.0.1:3000',
+        ];
 
-        // Check if origin is allowed
+        // Check exact match first
         if (allowedOrigins.includes(origin)) {
-          console.log('Allowed origin:', origin);
+          console.log('Origin allowed (exact match):', origin);
           return callback(null, true);
         }
 
-        // For development, allow any localhost origin
-        if (process.env.NODE_ENV !== 'production' && origin.includes('localhost')) {
-          console.log('Development localhost origin allowed:', origin);
+        // For React Native, check if origin starts with allowed domain
+        const allowedDomains = [
+          'https://chatting-app-mj2n.onrender.com',
+          'http://localhost',
+        ];
+
+        const isAllowed = allowedDomains.some(domain => origin.startsWith(domain));
+        
+        if (isAllowed) {
+          console.log('Origin allowed (domain match):', origin);
           return callback(null, true);
         }
 
-        console.log('Origin not allowed:', origin);
+        console.log('Origin NOT allowed:', origin);
         callback(new Error('Not allowed by CORS'), false);
       },
       methods: ['GET', 'POST'],
@@ -64,7 +68,7 @@ export const initSocket = (server: NetServer) => {
     pingTimeout: 60000,
     pingInterval: 25000,
     transports: ['polling', 'websocket'],
-    allowEIO3: true, // Backward compatibility
+    allowEIO3: true,
     upgradeTimeout: 30000,
     maxHttpBufferSize: 1e6,
   });
