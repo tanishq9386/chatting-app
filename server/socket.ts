@@ -14,6 +14,8 @@ export type NextApiResponseServerIO = NextApiResponse & {
 
 const users = new Map<string, User>();
 const messages = new Map<string, Message[]>();
+const MAX_MESSAGES_PER_ROOM = 100;
+const MAX_ROOMS = 50; // Prevent memory leaks from too many rooms
 
 export const initSocket = (server: NetServer) => {
   const io = new ServerIO<ClientToServerEvents, ServerToClientEvents>(server, {
@@ -21,127 +23,185 @@ export const initSocket = (server: NetServer) => {
     addTrailingSlash: false,
     cors: {
       origin: (origin, callback) => {
-        console.log('Incoming origin:', origin);
-        
-        // Allow requests with no origin (mobile apps)
+        // Allow requests with no origin (mobile apps, server-to-server)
         if (!origin) {
-          console.log('No origin - allowing (mobile app)');
           return callback(null, true);
         }
 
-        // Define allowed origins
-        const allowedOrigins = [
-          'https://chatting-app-mj2n.onrender.com',
-          'https://chatting-app-mj2n.onrender.com:443', // Add this line
-          'http://chatting-app-mj2n.onrender.com',
-          'http://localhost:3000',
-          'http://127.0.0.1:3000',
-        ];
+        // Define allowed origins based on environment
+        const allowedOrigins = process.env.NODE_ENV === 'production' 
+          ? [
+              'https://chatting-app-mj2n.onrender.com',
+              'https://chatting-app-mj2n.onrender.com:443',
+              'http://chatting-app-mj2n.onrender.com'
+            ]
+          : [
+              'http://localhost:3000',
+              'http://127.0.0.1:3000',
+              'http://localhost:8081', // Expo dev server
+              'http://localhost:19000', // Expo dev server alternative
+              'http://localhost:19006'  // Expo web
+            ];
 
-        // Check exact match first
+        // Check exact match
         if (allowedOrigins.includes(origin)) {
-          console.log('Origin allowed (exact match):', origin);
           return callback(null, true);
         }
 
-        // For React Native, check if origin starts with allowed domain
-        const allowedDomains = [
-          'https://chatting-app-mj2n.onrender.com',
-          'http://localhost',
-        ];
+        // For development, allow any localhost origin
+        if (process.env.NODE_ENV !== 'production' && origin.includes('localhost')) {
+          return callback(null, true);
+        }
 
-        const isAllowed = allowedDomains.some(domain => origin.startsWith(domain));
+        // Log rejected origins in development
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('Origin rejected:', origin);
+        }
         
-        if (isAllowed) {
-          console.log('Origin allowed (domain match):', origin);
-          return callback(null, true);
-        }
-
-        console.log('Origin NOT allowed:', origin);
         callback(new Error('Not allowed by CORS'), false);
       },
       methods: ['GET', 'POST'],
       allowedHeaders: ['Content-Type', 'Authorization'],
       credentials: true,
     },
-    // Enhanced options for React Native compatibility
+    // Optimized options for production
     pingTimeout: 60000,
     pingInterval: 25000,
     transports: ['polling', 'websocket'],
     allowEIO3: true,
     upgradeTimeout: 30000,
     maxHttpBufferSize: 1e6,
+    // Additional production optimizations
+    connectTimeout: 45000,
+    serveClient: false, // Don't serve socket.io client files
   });
 
+  // Connection error handling
   io.engine.on('connection_error', (err) => {
-    console.log('Connection error:', err.req);
-    console.log('Error code:', err.code);
-    console.log('Error message:', err.message);
-    console.log('Error context:', err.context);
+    console.error('Socket connection error:', {
+      code: err.code,
+      message: err.message,
+      context: err.context?.name || 'unknown'
+    });
   });
 
   io.on('connection', (socket) => {
-    console.log('User connected:', socket.id);
-    console.log('Transport:', socket.conn.transport.name);
+    console.log(`User connected: ${socket.id} via ${socket.conn.transport.name}`);
     
-    // Log transport upgrades
+    // Monitor transport upgrades
     socket.conn.on('upgrade', () => {
-      console.log('Transport upgraded to:', socket.conn.transport.name);
+      console.log(`Transport upgraded to ${socket.conn.transport.name} for ${socket.id}`);
     });
 
     socket.on('joinRoom', ({ username, room }) => {
-      console.log('User joining room:', { username, room, socketId: socket.id });
-      
-      const user: User = {
-        id: socket.id,
-        username,
-        room,
-      };
+      try {
+        // Validate input
+        if (!username?.trim() || !room?.trim()) {
+          socket.emit('error', 'Username and room are required');
+          return;
+        }
 
-      users.set(socket.id, user);
-      socket.join(room);
+        // Sanitize room name
+        const sanitizedRoom = room.trim().toLowerCase();
+        const sanitizedUsername = username.trim();
 
-      // Send existing messages to the user
-      const roomMessages = messages.get(room) || [];
-      socket.emit('roomMessages', roomMessages);
-      console.log(`Sent ${roomMessages.length} existing messages to ${username}`);
+        console.log(`${sanitizedUsername} joining room: ${sanitizedRoom}`);
+        
+        const user: User = {
+          id: socket.id,
+          username: sanitizedUsername,
+          room: sanitizedRoom,
+        };
 
-      // Notify others in the room
-      socket.to(room).emit('userJoined', user);
+        // Remove user from previous room if exists
+        const existingUser = users.get(socket.id);
+        if (existingUser && existingUser.room !== sanitizedRoom) {
+          socket.leave(existingUser.room);
+          socket.to(existingUser.room).emit('userLeft', existingUser);
+          
+          // Update user list for old room
+          const oldRoomUsers = Array.from(users.values()).filter(u => u.room === existingUser.room && u.id !== socket.id);
+          io.to(existingUser.room).emit('roomUsers', oldRoomUsers);
+        }
 
-      // Send updated user list to all users in the room
-      const roomUsers = Array.from(users.values()).filter(u => u.room === room);
-      io.to(room).emit('roomUsers', roomUsers);
-      console.log(`Updated user list for room ${room}:`, roomUsers.map(u => u.username));
+        users.set(socket.id, user);
+        socket.join(sanitizedRoom);
+
+        // Send existing messages to the user
+        const roomMessages = messages.get(sanitizedRoom) || [];
+        socket.emit('roomMessages', roomMessages);
+
+        // Notify others in the room
+        socket.to(sanitizedRoom).emit('userJoined', user);
+
+        // Send updated user list to all users in the room
+        const roomUsers = Array.from(users.values()).filter(u => u.room === sanitizedRoom);
+        io.to(sanitizedRoom).emit('roomUsers', roomUsers);
+        
+        console.log(`Room ${sanitizedRoom} now has ${roomUsers.length} users`);
+        
+      } catch (error) {
+        console.error('Error in joinRoom:', error);
+        socket.emit('error', 'Failed to join room');
+      }
     });
 
     socket.on('sendMessage', ({ text, username, room }) => {
       try {
-        console.log('Received message:', { text, username, room, socketId: socket.id });
+        // Validate input
+        if (!text?.trim() || !username?.trim() || !room?.trim()) {
+          socket.emit('error', 'Message text, username, and room are required');
+          return;
+        }
+
+        // Rate limiting check (simple implementation)
+        const now = Date.now();
+        const userKey = `${socket.id}_lastMessage`;
+        const lastMessageTime = (socket as any)[userKey] || 0;
+        
+        if (now - lastMessageTime < 500) { // 500ms rate limit
+          socket.emit('error', 'Please wait before sending another message');
+          return;
+        }
+        (socket as any)[userKey] = now;
+
+        const sanitizedText = text.trim().substring(0, 1000); // Limit message length
+        const sanitizedRoom = room.trim().toLowerCase();
+        const sanitizedUsername = username.trim();
         
         const message: Message = {
           id: uuidv4(),
-          text,
-          username,
-          room,
+          text: sanitizedText,
+          username: sanitizedUsername,
+          room: sanitizedRoom,
           timestamp: new Date(),
         };
 
-        // Store message
-        if (!messages.has(room)) {
-          messages.set(room, []);
+        // Store message with memory management
+        if (!messages.has(sanitizedRoom)) {
+          // Prevent too many rooms from being created
+          if (messages.size >= MAX_ROOMS) {
+            socket.emit('error', 'Server capacity reached');
+            return;
+          }
+          messages.set(sanitizedRoom, []);
         }
-        const roomMessages = messages.get(room)!;
+        
+        const roomMessages = messages.get(sanitizedRoom)!;
         roomMessages.push(message);
 
-        // Keep only last 100 messages per room to prevent memory issues
-        if (roomMessages.length > 100) {
-          roomMessages.splice(0, roomMessages.length - 100);
+        // Keep only recent messages
+        if (roomMessages.length > MAX_MESSAGES_PER_ROOM) {
+          roomMessages.splice(0, roomMessages.length - MAX_MESSAGES_PER_ROOM);
         }
 
         // Send message to all users in the room
-        io.to(room).emit('message', message);
-        console.log(`Message sent to room ${room}:`, message.text.substring(0, 50) + '...');
+        io.to(sanitizedRoom).emit('message', message);
+        
+        // Log only in development
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`Message in ${sanitizedRoom} from ${sanitizedUsername}: ${sanitizedText.substring(0, 50)}...`);
+        }
         
       } catch (err) {
         console.error('Error handling sendMessage:', err);
@@ -150,45 +210,86 @@ export const initSocket = (server: NetServer) => {
     });
 
     socket.on('leaveRoom', () => {
-      const user = users.get(socket.id);
-      if (user) {
-        console.log('User leaving room:', { username: user.username, room: user.room });
-        socket.leave(user.room);
-        
-        // Notify others in the room
-        socket.to(user.room).emit('userLeft', user);
+      try {
+        const user = users.get(socket.id);
+        if (user) {
+          console.log(`${user.username} leaving room: ${user.room}`);
+          socket.leave(user.room);
+          
+          // Notify others in the room
+          socket.to(user.room).emit('userLeft', user);
 
-        // Send updated user list
-        const roomUsers = Array.from(users.values()).filter(u => u.room === user.room && u.id !== socket.id);
-        io.to(user.room).emit('roomUsers', roomUsers);
+          // Send updated user list
+          const roomUsers = Array.from(users.values()).filter(u => u.room === user.room && u.id !== socket.id);
+          io.to(user.room).emit('roomUsers', roomUsers);
+          
+          // Remove user from memory
+          users.delete(socket.id);
+        }
+      } catch (error) {
+        console.error('Error in leaveRoom:', error);
       }
     });
 
     socket.on('disconnect', (reason) => {
-      console.log('User disconnected:', socket.id, 'Reason:', reason);
-      
-      const user = users.get(socket.id);
-      if (user) {
-        users.delete(socket.id);
-        socket.to(user.room).emit('userLeft', user);
+      try {
+        const user = users.get(socket.id);
+        if (user) {
+          users.delete(socket.id);
+          socket.to(user.room).emit('userLeft', user);
 
-        // Send updated user list
-        const roomUsers = Array.from(users.values()).filter(u => u.room === user.room);
-        io.to(user.room).emit('roomUsers', roomUsers);
-        
-        console.log(`User ${user.username} left room ${user.room}`);
+          // Send updated user list
+          const roomUsers = Array.from(users.values()).filter(u => u.room === user.room);
+          io.to(user.room).emit('roomUsers', roomUsers);
+          
+          console.log(`${user.username} disconnected from ${user.room} (${reason})`);
+        } else {
+          console.log(`Unknown user ${socket.id} disconnected (${reason})`);
+        }
+      } catch (error) {
+        console.error('Error in disconnect handler:', error);
       }
     });
 
-    // Handle connection errors
+    // Handle socket errors
     socket.on('error', (error) => {
-      console.error('Socket error for', socket.id, ':', error);
+      console.error(`Socket error for ${socket.id}:`, error);
     });
   });
 
-  // Log server startup
-  console.log('Socket.IO server initialized with CORS configuration');
-  console.log('Environment:', process.env.NODE_ENV);
+  // Cleanup function for memory management
+  const cleanup = () => {
+    // Remove empty rooms periodically
+    setInterval(() => {
+      for (const [room, msgs] of messages.entries()) {
+        const hasUsers = Array.from(users.values()).some(user => user.room === room);
+        if (!hasUsers && msgs.length === 0) {
+          messages.delete(room);
+        }
+      }
+    }, 5 * 60 * 1000); // Clean up every 5 minutes
+  };
+
+  cleanup();
+
+  console.log(`Socket.IO server initialized (${process.env.NODE_ENV || 'development'})`);
   
   return io;
+};
+
+// Graceful shutdown handler
+export const shutdownSocket = (io: ServerIO) => {
+  console.log('Shutting down Socket.IO server...');
+  
+  // Notify all users
+  io.emit('error', 'Server is shutting down');
+  
+  // Close all connections
+  io.close(() => {
+    console.log('Socket.IO server closed');
+  });
+  
+  // Clear memory
+  users.clear();
+  messages.clear();
 };
