@@ -18,10 +18,22 @@ export interface ServerToClientEvents {
   userLeft: (user: User) => void;
   roomUsers: (users: User[]) => void;
   roomMessages: (messages: Message[]) => void;
+  error: (errorMessage: string) => void;
+  connect: () => void;
+  disconnect: (reason: string) => void;
 }
 
 export interface ClientToServerEvents {
-  sendMessage: (message: Omit<Message, 'id' | 'timestamp'>) => void;
+  sendMessage: (message: { text: string; username: string; room: string }) => void;
   joinRoom: (data: { username: string; room: string }) => void;
   leaveRoom: () => void;
+}
+
+export interface InterServerEvents {
+  ping: () => void;
+}
+
+export interface SocketData {
+  username: string;
+  room: string;
 }
