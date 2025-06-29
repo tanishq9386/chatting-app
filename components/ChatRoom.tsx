@@ -9,7 +9,7 @@ import { UserList } from './UserList';
 interface ChatRoomProps {
   username: string;
   room: string;
-  uid: string; // Added UID prop
+  uid: string;
 }
 
 export const ChatRoom = ({ username, room, uid }: ChatRoomProps) => {
@@ -57,12 +57,10 @@ export const ChatRoom = ({ username, room, uid }: ChatRoomProps) => {
 
     const onUserJoined = (user: User) => {
       console.log(`${user.username} joined the room`);
-      // You could show a notification here if desired
     };
 
     const onUserLeft = (user: User) => {
       console.log(`${user.username} left the room`);
-      // You could show a notification here if desired
     };
 
     const onRoomUsers = (roomUsers: User[]) => {
@@ -73,8 +71,8 @@ export const ChatRoom = ({ username, room, uid }: ChatRoomProps) => {
     const onConnect = () => {
       console.log('✅ Connected to server');
       setConnectionStatus('connected');
-      // Rejoin room on reconnection
-      socket.emit('joinRoom', { username, room });
+      // Rejoin room on reconnection with UID
+      socket.emit('joinRoom', { username, room, uid });
     };
 
     const onDisconnect = (reason: string) => {
@@ -87,8 +85,8 @@ export const ChatRoom = ({ username, room, uid }: ChatRoomProps) => {
       setConnectionStatus('disconnected');
     };
 
-    // Join the room immediately
-    socket.emit('joinRoom', { username, room });
+    // Join the room immediately with UID
+    socket.emit('joinRoom', { username, room, uid });
 
     // Add listeners
     socket.on('message', onMessage);
@@ -117,7 +115,7 @@ export const ChatRoom = ({ username, room, uid }: ChatRoomProps) => {
     };
   }, [socket, username, room, uid]);
 
-  // Send message function
+  // Send message function with UID
   const sendMessage = useCallback((text: string) => {
     console.log('Attempting to send message:', { text, username, room, uid });
     
@@ -136,13 +134,20 @@ export const ChatRoom = ({ username, room, uid }: ChatRoomProps) => {
       return;
     }
 
-    // Send message with UID for client-side tracking if needed
+    // Send message WITH UID for proper message ownership tracking
     socket.emit('sendMessage', { 
       text: text.trim(), 
       username, 
-      room 
+      room,
+      uid // Include UID in message
     });
   }, [socket, username, room, uid, isConnected]);
+
+  // Check if message belongs to current user using UID
+  const isOwnMessage = (message: Message): boolean => {
+    // Use UID if available, fallback to username for backward compatibility
+    return message.uid ? message.uid === uid : message.username === username;
+  };
 
   // Get connection status indicator
   const getConnectionIndicator = () => {
@@ -179,7 +184,7 @@ export const ChatRoom = ({ username, room, uid }: ChatRoomProps) => {
           </div>
         </div>
         
-        {/* Messages area */}
+        {/* Messages area - Updated to use UID-based message ownership */}
         <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-gray-100">
           {messages.length === 0 ? (
             <div className="text-center text-gray-500 mt-8">
@@ -187,31 +192,44 @@ export const ChatRoom = ({ username, room, uid }: ChatRoomProps) => {
               <p className="text-sm">Start a conversation...</p>
             </div>
           ) : (
-            messages.map((message) => (
-              <div
-                key={message.id}
-                className={`p-3 rounded-lg max-w-xs ${
-                  message.username === username
-                    ? 'bg-blue-500 text-white ml-auto'
-                    : 'bg-white text-gray-800 shadow-sm'
-                }`}
-              >
-                {message.username !== username && (
-                  <div className="font-semibold text-sm text-blue-600 mb-1">
-                    {message.username}
+            messages.map((message) => {
+              const isOwn = isOwnMessage(message);
+              
+              return (
+                <div
+                  key={message.id}
+                  className={`p-3 rounded-lg max-w-xs ${
+                    isOwn
+                      ? 'bg-blue-500 text-white ml-auto'
+                      : 'bg-white text-gray-800 shadow-sm'
+                  }`}
+                >
+                  {!isOwn && (
+                    <div className="font-semibold text-sm text-blue-600 mb-1">
+                      {message.username}
+                    </div>
+                  )}
+                  <div className="whitespace-pre-wrap">{message.text}</div>
+                  <div className={`text-xs mt-2 ${
+                    isOwn ? 'text-blue-100' : 'text-gray-500'
+                  }`}>
+                    {new Date(message.timestamp).toLocaleTimeString([], { 
+                      hour: '2-digit', 
+                      minute: '2-digit' 
+                    })}
                   </div>
-                )}
-                <div className="whitespace-pre-wrap">{message.text}</div>
-                <div className={`text-xs mt-2 ${
-                  message.username === username ? 'text-blue-100' : 'text-gray-500'
-                }`}>
-                  {new Date(message.timestamp).toLocaleTimeString([], { 
-                    hour: '2-digit', 
-                    minute: '2-digit' 
-                  })}
+                  
+                  {/* Debug info in development */}
+                  {process.env.NODE_ENV === 'development' && (
+                    <div className={`text-xs mt-1 opacity-50 ${
+                      isOwn ? 'text-blue-200' : 'text-gray-400'
+                    }`}>
+                      {message.uid ? `UID: ${message.uid.substring(0, 8)}...` : 'No UID'}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
           <div ref={messagesEndRef} />
         </div>
@@ -231,7 +249,7 @@ export const ChatRoom = ({ username, room, uid }: ChatRoomProps) => {
       </div>
       
       {/* User list sidebar */}
-      <UserList users={users} currentUser={username} />
+      <UserList users={users} currentUserUID={uid} />
     </div>
   );
 };

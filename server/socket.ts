@@ -2,12 +2,12 @@ import { Server as NetServer } from 'http';
 import { NextApiRequest, NextApiResponse } from 'next';
 import { Server as ServerIO } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
-import { Message, User, ServerToClientEvents, ClientToServerEvents } from '@/lib/types';
+import { Message, User, ServerToClientEvents, ClientToServerEvents, InterServerEvents, SocketData } from '@/lib/types';
 
 export type NextApiResponseServerIO = NextApiResponse & {
   socket: {
     server: NetServer & {
-      io?: ServerIO<ClientToServerEvents, ServerToClientEvents>;
+      io?: ServerIO<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
     };
   };
 };
@@ -15,10 +15,10 @@ export type NextApiResponseServerIO = NextApiResponse & {
 const users = new Map<string, User>();
 const messages = new Map<string, Message[]>();
 const MAX_MESSAGES_PER_ROOM = 100;
-const MAX_ROOMS = 50; // Prevent memory leaks from too many rooms
+const MAX_ROOMS = 50;
 
 export const initSocket = (server: NetServer) => {
-  const io = new ServerIO<ClientToServerEvents, ServerToClientEvents>(server, {
+  const io = new ServerIO<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(server, {
     path: '/api/socket',
     addTrailingSlash: false,
     cors: {
@@ -38,22 +38,19 @@ export const initSocket = (server: NetServer) => {
           : [
               'http://localhost:3000',
               'http://127.0.0.1:3000',
-              'http://localhost:8081', // Expo dev server
-              'http://localhost:19000', // Expo dev server alternative
-              'http://localhost:19006'  // Expo web
+              'http://localhost:8081',
+              'http://localhost:19000',
+              'http://localhost:19006'
             ];
 
-        // Check exact match
         if (allowedOrigins.includes(origin)) {
           return callback(null, true);
         }
 
-        // For development, allow any localhost origin
         if (process.env.NODE_ENV !== 'production' && origin.includes('localhost')) {
           return callback(null, true);
         }
 
-        // Log rejected origins in development
         if (process.env.NODE_ENV !== 'production') {
           console.log('Origin rejected:', origin);
         }
@@ -64,19 +61,16 @@ export const initSocket = (server: NetServer) => {
       allowedHeaders: ['Content-Type', 'Authorization'],
       credentials: true,
     },
-    // Optimized options for production
     pingTimeout: 60000,
     pingInterval: 25000,
     transports: ['polling', 'websocket'],
     allowEIO3: true,
     upgradeTimeout: 30000,
     maxHttpBufferSize: 1e6,
-    // Additional production optimizations
     connectTimeout: 45000,
-    serveClient: false, // Don't serve socket.io client files
+    serveClient: false,
   });
 
-  // Connection error handling
   io.engine.on('connection_error', (err) => {
     console.error('Socket connection error:', {
       code: err.code,
@@ -88,29 +82,35 @@ export const initSocket = (server: NetServer) => {
   io.on('connection', (socket) => {
     console.log(`User connected: ${socket.id} via ${socket.conn.transport.name}`);
     
-    // Monitor transport upgrades
     socket.conn.on('upgrade', () => {
       console.log(`Transport upgraded to ${socket.conn.transport.name} for ${socket.id}`);
     });
 
-    socket.on('joinRoom', ({ username, room }) => {
+    // Updated joinRoom handler with UID support
+    socket.on('joinRoom', ({ username, room, uid }) => {
       try {
-        // Validate input
         if (!username?.trim() || !room?.trim()) {
           socket.emit('error', 'Username and room are required');
           return;
         }
 
-        // Sanitize room name
         const sanitizedRoom = room.trim().toLowerCase();
         const sanitizedUsername = username.trim();
 
-        console.log(`${sanitizedUsername} joining room: ${sanitizedRoom}`);
+        console.log(`${sanitizedUsername} (${uid || 'no-uid'}) joining room: ${sanitizedRoom}`);
         
         const user: User = {
           id: socket.id,
           username: sanitizedUsername,
           room: sanitizedRoom,
+          uid: uid, // Store UID with user
+        };
+
+        // Store UID in socket data for easy access
+        socket.data = {
+          username: sanitizedUsername,
+          room: sanitizedRoom,
+          uid: uid,
         };
 
         // Remove user from previous room if exists
@@ -119,7 +119,6 @@ export const initSocket = (server: NetServer) => {
           socket.leave(existingUser.room);
           socket.to(existingUser.room).emit('userLeft', existingUser);
           
-          // Update user list for old room
           const oldRoomUsers = Array.from(users.values()).filter(u => u.room === existingUser.room && u.id !== socket.id);
           io.to(existingUser.room).emit('roomUsers', oldRoomUsers);
         }
@@ -146,28 +145,31 @@ export const initSocket = (server: NetServer) => {
       }
     });
 
-    socket.on('sendMessage', ({ text, username, room }) => {
+    // Updated sendMessage handler with UID support
+    socket.on('sendMessage', ({ text, username, room, uid }) => {
       try {
-        // Validate input
         if (!text?.trim() || !username?.trim() || !room?.trim()) {
           socket.emit('error', 'Message text, username, and room are required');
           return;
         }
 
-        // Rate limiting check (simple implementation)
+        // Rate limiting check
         const now = Date.now();
         const userKey = `${socket.id}_lastMessage`;
         const lastMessageTime = (socket as any)[userKey] || 0;
         
-        if (now - lastMessageTime < 500) { // 500ms rate limit
+        if (now - lastMessageTime < 500) {
           socket.emit('error', 'Please wait before sending another message');
           return;
         }
         (socket as any)[userKey] = now;
 
-        const sanitizedText = text.trim().substring(0, 1000); // Limit message length
+        const sanitizedText = text.trim().substring(0, 1000);
         const sanitizedRoom = room.trim().toLowerCase();
         const sanitizedUsername = username.trim();
+        
+        // Get UID from socket data if not provided
+        const messageUID = uid || socket.data?.uid;
         
         const message: Message = {
           id: uuidv4(),
@@ -175,11 +177,11 @@ export const initSocket = (server: NetServer) => {
           username: sanitizedUsername,
           room: sanitizedRoom,
           timestamp: new Date(),
+          uid: messageUID, // Include UID in message for ownership tracking
         };
 
         // Store message with memory management
         if (!messages.has(sanitizedRoom)) {
-          // Prevent too many rooms from being created
           if (messages.size >= MAX_ROOMS) {
             socket.emit('error', 'Server capacity reached');
             return;
@@ -190,7 +192,6 @@ export const initSocket = (server: NetServer) => {
         const roomMessages = messages.get(sanitizedRoom)!;
         roomMessages.push(message);
 
-        // Keep only recent messages
         if (roomMessages.length > MAX_MESSAGES_PER_ROOM) {
           roomMessages.splice(0, roomMessages.length - MAX_MESSAGES_PER_ROOM);
         }
@@ -198,9 +199,8 @@ export const initSocket = (server: NetServer) => {
         // Send message to all users in the room
         io.to(sanitizedRoom).emit('message', message);
         
-        // Log only in development
         if (process.env.NODE_ENV !== 'production') {
-          console.log(`Message in ${sanitizedRoom} from ${sanitizedUsername}: ${sanitizedText.substring(0, 50)}...`);
+          console.log(`Message in ${sanitizedRoom} from ${sanitizedUsername} (${messageUID}): ${sanitizedText.substring(0, 50)}...`);
         }
         
       } catch (err) {
@@ -213,17 +213,14 @@ export const initSocket = (server: NetServer) => {
       try {
         const user = users.get(socket.id);
         if (user) {
-          console.log(`${user.username} leaving room: ${user.room}`);
+          console.log(`${user.username} (${user.uid}) leaving room: ${user.room}`);
           socket.leave(user.room);
           
-          // Notify others in the room
           socket.to(user.room).emit('userLeft', user);
 
-          // Send updated user list
           const roomUsers = Array.from(users.values()).filter(u => u.room === user.room && u.id !== socket.id);
           io.to(user.room).emit('roomUsers', roomUsers);
           
-          // Remove user from memory
           users.delete(socket.id);
         }
       } catch (error) {
@@ -238,11 +235,10 @@ export const initSocket = (server: NetServer) => {
           users.delete(socket.id);
           socket.to(user.room).emit('userLeft', user);
 
-          // Send updated user list
           const roomUsers = Array.from(users.values()).filter(u => u.room === user.room);
           io.to(user.room).emit('roomUsers', roomUsers);
           
-          console.log(`${user.username} disconnected from ${user.room} (${reason})`);
+          console.log(`${user.username} (${user.uid}) disconnected from ${user.room} (${reason})`);
         } else {
           console.log(`Unknown user ${socket.id} disconnected (${reason})`);
         }
@@ -251,7 +247,6 @@ export const initSocket = (server: NetServer) => {
       }
     });
 
-    // Handle socket errors
     socket.on('error', (error) => {
       console.error(`Socket error for ${socket.id}:`, error);
     });
@@ -259,7 +254,6 @@ export const initSocket = (server: NetServer) => {
 
   // Cleanup function for memory management
   const cleanup = () => {
-    // Remove empty rooms periodically
     setInterval(() => {
       for (const [room, msgs] of messages.entries()) {
         const hasUsers = Array.from(users.values()).some(user => user.room === room);
@@ -267,7 +261,7 @@ export const initSocket = (server: NetServer) => {
           messages.delete(room);
         }
       }
-    }, 5 * 60 * 1000); // Clean up every 5 minutes
+    }, 5 * 60 * 1000);
   };
 
   cleanup();
@@ -278,18 +272,15 @@ export const initSocket = (server: NetServer) => {
 };
 
 // Graceful shutdown handler
-export const shutdownSocket = (io: ServerIO) => {
+export const shutdownSocket = (io: ServerIO<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>) => {
   console.log('Shutting down Socket.IO server...');
   
-  // Notify all users
   io.emit('error', 'Server is shutting down');
   
-  // Close all connections
   io.close(() => {
     console.log('Socket.IO server closed');
   });
   
-  // Clear memory
   users.clear();
   messages.clear();
 };

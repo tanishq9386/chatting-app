@@ -4,12 +4,14 @@ export interface Message {
   username: string;
   timestamp: Date;
   room: string;
+  uid?: string; 
 }
 
 export interface User {
   id: string;
   username: string;
   room: string;
+  uid?: string; 
 }
 
 export interface ServerToClientEvents {
@@ -19,13 +21,11 @@ export interface ServerToClientEvents {
   roomUsers: (users: User[]) => void;
   roomMessages: (messages: Message[]) => void;
   error: (errorMessage: string) => void;
-  connect: () => void;
-  disconnect: (reason: string) => void;
 }
 
 export interface ClientToServerEvents {
-  sendMessage: (message: { text: string; username: string; room: string }) => void;
-  joinRoom: (data: { username: string; room: string }) => void;
+  sendMessage: (message: { text: string; username: string; room: string; uid?: string }) => void;
+  joinRoom: (data: { username: string; room: string; uid?: string }) => void;
   leaveRoom: () => void;
 }
 
@@ -36,4 +36,5 @@ export interface InterServerEvents {
 export interface SocketData {
   username: string;
   room: string;
+  uid?: string;
 }
