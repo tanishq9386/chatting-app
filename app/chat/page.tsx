@@ -7,16 +7,29 @@ export default function ChatPage() {
   const [joined, setJoined] = useState(false);
   const [username, setUsername] = useState('');
   const [room, setRoom] = useState('');
+  const [userUID, setUserUID] = useState('');
+
+  const generateUID = (): string => {
+    // Generate unique ID using timestamp + random string
+    const timestamp = Date.now();
+    const randomPart = Math.random().toString(36).substring(2, 15);
+    return `user_${timestamp}_${randomPart}`;
+  };
 
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
     if (username.trim() && room.trim()) {
+      const uid = generateUID();
+      setUserUID(uid);
       setJoined(true);
+      
+      // Optional: Log for debugging
+      console.log('User joining:', { username, room, uid });
     }
   };
 
   if (joined) {
-    return <ChatRoom username={username} room={room} />;
+    return <ChatRoom username={username} room={room} uid={userUID} />;
   }
 
   return (
@@ -34,6 +47,8 @@ export default function ChatPage() {
               className="w-full p-2 text-black border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Enter your username"
               required
+              minLength={2}
+              maxLength={20}
             />
           </div>
           
@@ -46,6 +61,8 @@ export default function ChatPage() {
               className="w-full p-2 text-black border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Enter room name"
               required
+              minLength={1}
+              maxLength={30}
             />
           </div>
           
@@ -56,6 +73,13 @@ export default function ChatPage() {
             Join Room
           </button>
         </form>
+        
+        {/* Hidden UID display for debugging (remove in production) */}
+        {userUID && (
+          <div className="mt-2 text-xs text-gray-500 text-center">
+            Session ID: {userUID.substring(0, 16)}...
+          </div>
+        )}
       </div>
     </div>
   );
